@@ -1,0 +1,7 @@
+python-telegram-bot
+imgurpython
+google-api-python-client
+requests
+lxml
+beautifulsoup4
+sqlalchemy
