@@ -76,7 +76,7 @@ def chatId(bot, update, session):
 
 def setup(bot, update, session):
     logger.info("Ricevuto comando setup da: %s", update.message.from_user.username)
-    data = models.registerUpdate(session)
+    data = models.registerUpdate(session, update)
     if checkPermission(data['user'], 1):
         models.createTables()
         update.message.reply_text("Tabelle del database aggiornate", quote="False")
