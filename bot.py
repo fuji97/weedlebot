@@ -9,8 +9,8 @@ from loli import getFromAlgorithms
 from telegram.error import TelegramError, Unauthorized
 
 # Enable logging
-logging.basicConfig(format='%(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(format='%(name)s - %(thread)d - %(message)s',
+                    level=logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 
@@ -167,26 +167,27 @@ def loli(bot, update, args, session):
             if 0 < count <= 10 and checkPermission(data['user'], 4, chat=data['chat']):
                 param = ' '.join(args[1:]) if not '' else None
                 for i in range(0, count):
-                    logging.debug("Immagine %i", i)
-                    sendImage(update, param)
+                    sendImage(update, models.Session(), param)
             else:
                 logger.info("Numero di immagini oltre il limite o mancanza di permessi")
         except ValueError:
             param = ' '.join(args)
             logger.info("Richiesta loli con parametro di ricerca: %s", param)
-            sendImage(update, param)
+            sendImage(update, session, param)
     else:
-        sendImage(update)
+        sendImage(update, session)
 
 
 @run_async
-def sendImage(update, param=None):
-    logging.debug("Invio immagine startato")
-    image = getFromAlgorithms(param)
+def sendImage(update, session, param=None):
+    logging.debug("sendImage avviato")
+    image = getFromAlgorithms(session, param)
+    logger.debug("Immagine ricevuta, invio su Telegram")
     if image["gif"]:
         update.message.reply_video(video=image["link"],quote=False)
     else:
         update.message.reply_photo(photo=image["link"],quote=False)
+    logger.debug("Chiusura del thread di sendImage")
 
 def error(bot, update, error):
     logger.warn('Update "%s" ha causato un errore "%s"' % (update, error))
