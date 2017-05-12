@@ -2,11 +2,15 @@ import os
 import re
 import logging
 import models
+import threading
+import time
+import sys
 from models import DataCommandHandler, DataMessageHandler
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.ext.dispatcher import run_async
 from loli import getFromAlgorithms
 from telegram.error import TelegramError, Unauthorized
+from  sqlalchemy.sql.expression import func
 
 # Enable logging
 logging.basicConfig(format='%(name)s - %(thread)d - %(message)s',
@@ -43,6 +47,9 @@ def main():
     dp.add_handler(DataCommandHandler("register",register))
     dp.add_handler(DataCommandHandler("regole",rules))
     dp.add_handler(DataCommandHandler("commands",commands))
+    dp.add_handler(DataCommandHandler("restart",restart))
+    dp.add_handler(DataCommandHandler("ilaria",ilaria))
+    dp.add_handler(DataCommandHandler("save_voice",save_voice))
     dp.add_handler(DataMessageHandler(Filters.all,echo))
 
     # log all errors
@@ -64,6 +71,15 @@ def start(bot, update, session):
     logger.info("Ricevuto comando start da: %s", update.message.from_user.username)
     models.registerUpdate(session, update)
     update.message.reply_text('C-Ciao Onii-san, sono la loli personale dei gruppo @weedlefan, se hai bisogno di supporto usa il comando /help o contatta il mio senpai @fuji97.',quote=False)
+
+def restart(bot, update, session):
+    logger.info("Ricevuto comando restart da: %s", update.message.from_user.username)
+    data = models.registerUpdate(session, update)
+    if checkPermission(data['user'], 2):
+        logger.info("Riavvio del bot")
+        bot.send_message(update.message.chat_id, "Riavvio del bot...")
+        time.sleep(0.2)
+        os.execl(sys.executable, sys.executable, *sys.argv)
 
 def chatId(bot, update, session):
     logger.info("Ricevuto comando chatId da: %s", update.message.from_user.username)
@@ -124,6 +140,54 @@ def register(bot, update, session):
     logger.info("Ricevuto comando register da: %s", update.message.from_user.username)
     models.registerUpdate(session, update)
 
+def ilaria(bot, update, args, session):
+    logger.info("Ricevuto comando ilaria da: %s", update.message.from_user.username)
+    args = ' '.join(args)
+    data = models.registerUpdate(session, update)
+    if args:
+        voice = session.query(Voice).filter_by(command=args).first()
+    else:
+        voice = session.query(Voice).order_by(func.random()).first()
+    if voice:
+        update.message.reply_voice(voice=voice.file_id, duration=voice.duration, quote=False)
+    else:
+        update.message.reply_text("Nessun audio trovato")
+
+def save_voice(bot, update, args, session):
+    logger.info("Ricevuto comando save_audio da: %s", update.message.from_user.username)
+    args = ' '.join(args)
+    data = models.registerUpdate(session, update)
+    if not checkPermission(data['user'], 3, data['chat']):
+        update.message.reply_text("Non hai i permessi per usare questo comando", quote=False)
+        return
+    if update.message.reply_to_message is None:
+        update.message.reply_text("Utilizzare il comando save_voice in risposta ad un messagio vocale per salvarlo", quote=False)
+        return
+    if update.message.reply_to_message.voice is None:
+        update.message.reply_text("Non è presente un messaggio vocale", quote=False)
+        return
+    if args is not None and args is not '':
+        update.message.reply_text("Non è presente il comando con cui salvare il messaggio vocale", quote=False)
+        return
+
+    voice_data = update.message.reply_to_message.voice
+
+    voice = session.query(Voice).filter_by(command=args, chat_id=data['chat'].id).first()
+    if voice:
+        update.message.reply_text("Comando già trovato, sovrascrittura", quote=False)
+        voice.file_id = voice_data.file_id
+        voice.duration = voice_data.duration
+    else:
+        update.message.reply_text("Creazione del comando %s" % args, quote=False)
+        voice = Voice(command=args, file_id=voice_data.file_id, duration=voice_data.duration, chat_id=data['chat'].id)
+        session.add(voice)
+
+    try:
+        session.commit()
+    except Exception as e:
+        logger.error(str(e))
+        session.rollback()       
+        
 
 def echo(bot, update, session):
     data = models.registerUpdate(session, update)
@@ -180,14 +244,20 @@ def loli(bot, update, args, session):
 
 @run_async
 def sendImage(update, session, param=None):
-    logging.debug("sendImage avviato")
-    image = getFromAlgorithms(session, param)
-    logger.debug("Immagine ricevuta, invio su Telegram")
-    if image["gif"]:
-        update.message.reply_video(video=image["link"],quote=False)
-    else:
-        update.message.reply_photo(photo=image["link"],quote=False)
-    logger.debug("Chiusura del thread di sendImage")
+    try:
+        logging.debug("sendImage avviato")
+        image = getFromAlgorithms(session, param)
+        if image:
+            logger.debug("Immagine ricevuta, invio su Telegram")
+            if image["gif"]:
+                update.message.reply_video(video=image["link"],quote=False)
+            else:
+                update.message.reply_photo(photo=image["link"],quote=False)
+            logger.debug("Chiusura del thread di sendImage")
+        else:
+            update.message.reply_text("Nessuna immagine ricevuta")
+    except Exception as e:
+        logger.exception(e)
 
 def error(bot, update, error):
     logger.warn('Update "%s" ha causato un errore "%s"' % (update, error))

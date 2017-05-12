@@ -1,13 +1,14 @@
-from imgurpython import ImgurClient
-from random import randint
-from apiclient.discovery import build
 import os
 import requests
 import lxml
-from bs4 import BeautifulSoup
-from xml.etree import ElementTree
 import logging
 import threading
+import models
+from imgurpython import ImgurClient
+from random import randint
+from apiclient.discovery import build
+from bs4 import BeautifulSoup
+from xml.etree import ElementTree
 
 # Enable logging
 logger = logging.getLogger(__name__)
@@ -23,25 +24,32 @@ KONACHAN_MAX_OFFSET = int(os.environ.get("KONACHAN_MAX_OFFSET", 2000))
 client = None
 
 # Inizializza l'engine di Google API
-service = None
+#service = None
 
-def getFromGoogle(**kwargs):
-	if service == None:
-		service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
+def getFromGoogle(param=None, **kwargs):
+	service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
+
+	if param:
+		q = "loli %s" % param
+	else:
+		q = "loli"
 
 	startIndex = randint(1,100)
 	try:
 		res = service.cse().list(
-			q='loli',
+			q=q,
 			cx=SEARCH_ENGINE_ID,
 			searchType="image",
 			num=1,
 			start=startIndex,
 			safe=SAFE_LEVEL,
 			).execute()
-		return {"link" : res["items"][0]["link"], "gif" : False}
+		if len(res['link'] > 0):
+			return {"link" : res["items"][0]["link"], "gif" : False}
+		else:
+			return None
 	except Exception as e:
-		return getFromImgur()
+		return None
 
 def getFromImgur(**kwargs):
 	if client == None:
@@ -74,13 +82,12 @@ def printQualcosa():
 	logger.debug("Qualcosa")
 
 def getFromKonachan(param=None, **kwargs):
-	print("Ciao")
 	logger.debug("Avviato getFromKonachan")
 	if param:
 		text = "loli %s rating:safe" % param
 	else:
 		text = "loli rating:safe"
-	if session:
+	if 'session' in kwargs:
 		if param:
 			params = {"limit": 0,
 					"tags": text}
@@ -88,11 +95,16 @@ def getFromKonachan(param=None, **kwargs):
 			tree = ElementTree.fromstring(req.content)
 			count = int(tree.attrib["count"])
 		else:
-			count = models.getVariable(session, 'konachan_count') if not None else KONACHAN_MAX_OFFSET
-			count = int(count)
+			count = models.getVariable(kwargs['session'], 'konachan_count')
+			try:
+				count = int(count)
+			except TypeError:
+				count = KONACHAN_MAX_OFFSET
 	else:
 		count = KONACHAN_MAX_OFFSET
-		
+
+	if count < 1:
+		return None
 
 	if param:
 		text = "loli %s rating:safe" % param
@@ -111,20 +123,19 @@ def getFromKonachan(param=None, **kwargs):
 	link = tree[0].attrib["file_url"]
 	link = "https:" + link
 
-	if session and not param:
-		models.setVariable(session, 'konachan_count', str(tree.attrib['count']))
+	if 'session' in kwargs and not param:
+		models.setVariable(kwargs['session'], 'konachan_count', str(tree.attrib['count']))
 
 	return {"link": link, "gif": False}
 
 # Metodi da usare per ottenere le immagini
-ALGORITHMS = [#getFromZerochan,
+ALGORITHMS = [getFromZerochan,
 			getFromKonachan]
 
-ALGORITHMS_PARAMS = [getFromKonachan]
+ALGORITHMS_PARAMS = [getFromKonachan,]
 
 def getFromAlgorithms(session, param=None):
 	logger.debug("GetFromAlgorithms in thread %i con parametri %s", threading.get_ident(), param)
-	return getFromKonachan(None, session=None)
 	if param:
 		index = randint(0,len(ALGORITHMS_PARAMS)-1)
 		return ALGORITHMS_PARAMS[index](param, session=session)

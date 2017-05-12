@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///data.db')
 
 logger.info("Creating engine with URI: '%s'" % DATABASE_URI)
-engine = create_engine(DATABASE_URI)
+engine = create_engine(DATABASE_URI, connect_args={'check_same_thread': False})
 session_factory = sessionmaker(bind=engine)
 Session = scoped_session(session_factory)
 Base = declarative_base()
@@ -81,17 +81,19 @@ class ChatMember(Base):
             str(self.user_id), str(self.chat_id), self.user_role
         )
 
-class Audio(Base):
-    __tablename__ = 'audio'
+class Voice(Base):
+    __tablename__ = 'voice'
 
     id = Column(Integer, primary_key=True)
     name = Column(String)
     command = Column(String, nullable=False)
-    path = Column(String, nullable=False)
+    file_id = Column(String, nullable=False)
+    duration = Column(Integer)
+    chat_id = Column(BigInteger, ForeignKey('chat.id'))
 
     def __repr__(self):
-        return "<Audio(%s [/%s] %s)>" % (
-            self.name, self.command, self.path
+        return "<Audio(%s [/%s] %s in %i)>" % (
+            self.name, self.command, self.file_id, self.chat_id
         )
 
 class Variable(Base):
