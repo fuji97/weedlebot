@@ -86,8 +86,8 @@ class Voice(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String)
-    command = Column(String, nullable=False)
-    file_id = Column(String, nullable=False)
+    command = Column(String)
+    file_id = Column(String, nullable=False, unique=True)
     duration = Column(Integer)
     chat_id = Column(BigInteger, ForeignKey('chat.id'))
 

@@ -5,6 +5,8 @@ import models
 import threading
 import time
 import sys
+import botUtils
+from botUtils import checkPermission, permissions
 from models import DataCommandHandler, DataMessageHandler
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.ext.dispatcher import run_async
@@ -48,9 +50,10 @@ def main():
     dp.add_handler(DataCommandHandler("regole",rules))
     dp.add_handler(DataCommandHandler("commands",commands))
     dp.add_handler(DataCommandHandler("restart",restart))
-    dp.add_handler(DataCommandHandler("ilaria",ilaria))
-    dp.add_handler(DataCommandHandler("save_voice",save_voice))
-    dp.add_handler(DataMessageHandler(Filters.all,echo))
+    dp.add_handler(DataCommandHandler("ilaria",ilaria, pass_args=True))
+    dp.add_handler(DataCommandHandler("voice",voice, pass_args=True))
+    dp.add_handler(DataMessageHandler(Filters.voice, findIlaria))
+    dp.add_handler(DataMessageHandler(Filters.private,echo))
 
     # log all errors
     dp.add_error_handler(error)
@@ -92,8 +95,8 @@ def chatId(bot, update, session):
 
 def setup(bot, update, session):
     logger.info("Ricevuto comando setup da: %s", update.message.from_user.username)
-    data = models.registerUpdate(session, update)
-    if checkPermission(data['user'], 1):
+    #data = models.registerUpdate(session, update)
+    if update.effective_user.id == OWNER:
         models.createTables()
         update.message.reply_text("Tabelle del database aggiornate", quote="False")
 
@@ -140,20 +143,51 @@ def register(bot, update, session):
     logger.info("Ricevuto comando register da: %s", update.message.from_user.username)
     models.registerUpdate(session, update)
 
+def findIlaria(bot, update, session):
+    ilaria = models.getVariable(session, 'ilaria_id')
+    if ilaria is not None:
+        data = models.registerUpdate(session, update)
+        if data['user'].id == int(ilaria.value):
+            logger.info("Ricevuto audio di Ilaria, registro")
+            save_voice(session, update.message.voice, data['chat'])
+            update.message.reply_text("<i>Messaggio vocale registrato</>", parse_mode='html')
+        else:
+            logger.info("Ricevuto audio non di Ilaria (%i != %s)", data['user'].id, ilaria.value)
+
 def ilaria(bot, update, args, session):
     logger.info("Ricevuto comando ilaria da: %s", update.message.from_user.username)
     args = ' '.join(args)
     data = models.registerUpdate(session, update)
     if args:
-        voice = session.query(Voice).filter_by(command=args).first()
+        voice = session.query(models.Voice).filter_by(command=args).order_by(func.random()).first()
     else:
-        voice = session.query(Voice).order_by(func.random()).first()
+        voice = session.query(models.Voice).order_by(func.random()).first()
     if voice:
         update.message.reply_voice(voice=voice.file_id, duration=voice.duration, quote=False)
     else:
         update.message.reply_text("Nessun audio trovato")
 
-def save_voice(bot, update, args, session):
+def save_voice(session, voice_data, chat, command=None):
+    voice = session.query(models.Voice).filter_by(file_id=voice_data.file_id, chat_id=chat.id).first()
+    if voice:
+        #update.message.reply_text("Voce già trovata, sovrascrittura del comando", quote=False)
+        voice.command = command
+        created = True
+    else:
+        #update.message.reply_text("Creazione del comando %s" % args, quote=False)
+        voice = models.Voice(command=command, file_id=voice_data.file_id, duration=voice_data.duration, chat_id=chat.id)
+        session.add(voice)
+        created = False
+
+    try:
+        session.commit()
+    except Exception as e:
+        logger.error(str(e))
+        session.rollback()
+
+    return created
+
+def voice(bot, update, args, session):
     logger.info("Ricevuto comando save_audio da: %s", update.message.from_user.username)
     args = ' '.join(args)
     data = models.registerUpdate(session, update)
@@ -166,28 +200,14 @@ def save_voice(bot, update, args, session):
     if update.message.reply_to_message.voice is None:
         update.message.reply_text("Non è presente un messaggio vocale", quote=False)
         return
-    if args is not None and args is not '':
+    if args is None or args is '':
         update.message.reply_text("Non è presente il comando con cui salvare il messaggio vocale", quote=False)
         return
 
-    voice_data = update.message.reply_to_message.voice
-
-    voice = session.query(Voice).filter_by(command=args, chat_id=data['chat'].id).first()
-    if voice:
-        update.message.reply_text("Comando già trovato, sovrascrittura", quote=False)
-        voice.file_id = voice_data.file_id
-        voice.duration = voice_data.duration
+    if save_voice(session, update.message.reply_to_message.voice, data['chat'], args):
+        update.message.reply_text("Voce già trovata, sovrascrittura del comando", quote=False)
     else:
         update.message.reply_text("Creazione del comando %s" % args, quote=False)
-        voice = Voice(command=args, file_id=voice_data.file_id, duration=voice_data.duration, chat_id=data['chat'].id)
-        session.add(voice)
-
-    try:
-        session.commit()
-    except Exception as e:
-        logger.error(str(e))
-        session.rollback()       
-        
 
 def echo(bot, update, session):
     data = models.registerUpdate(session, update)
@@ -217,6 +237,8 @@ def echo(bot, update, session):
                 bot.sendMessage(chat_id=FANGROUP, text=mess.text, parse_mode="markdown")
             else:
                 logger.warning("Messaggio invalido ricevuto dall'owner")
+
+
 
 def loli(bot, update, args, session):
     logger.info("Ricevuto comando loli da: %s con parametri %s",
@@ -261,21 +283,6 @@ def sendImage(update, session, param=None):
 
 def error(bot, update, error):
     logger.warn('Update "%s" ha causato un errore "%s"' % (update, error))
-
-def checkPermission(user, level, chat=None):
-    if user.id == OWNER:
-        return True
-    if chat:
-        role = next(member for member in chat.users if member.user == user).user_role
-        if role.value <= level:
-            return True
-        else:
-            return False
-    else:
-        if user.general_role.value <= level:
-            return True
-        else:
-            return False
 
 if __name__ == '__main__':
     updater = Updater(TOKEN)
