@@ -5,3 +5,6 @@ requests
 lxml
 beautifulsoup4
 sqlalchemy
+
+future>=0.15.2
+certifi
