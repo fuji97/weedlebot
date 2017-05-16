@@ -16,7 +16,7 @@ from  sqlalchemy.sql.expression import func
 
 # Enable logging
 logging.basicConfig(format='%(name)s - %(thread)d - %(message)s',
-                    level=logging.DEBUG)
+                    level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
@@ -157,14 +157,18 @@ def ilaria(bot, update, args, session):
     logger.info("Ricevuto comando ilaria da: %s", update.message.from_user.username)
     args = ' '.join(args)
     data = models.registerUpdate(session, update)
-    if args:
-        voice = session.query(models.Voice).filter_by(command=args).order_by(func.random()).first()
+    if checkPermission(data['user'], 3, data['chat']):
+        logger.info("Permessi validi, esecuzione del comando")
+        if args:
+            voice = session.query(models.Voice).filter_by(command=args).order_by(func.random()).first()
+        else:
+            voice = session.query(models.Voice).order_by(func.random()).first()
+        if voice:
+            update.message.reply_voice(voice=voice.file_id, duration=voice.duration, quote=False)
+        else:
+            update.message.reply_text("Nessun audio trovato")
     else:
-        voice = session.query(models.Voice).order_by(func.random()).first()
-    if voice:
-        update.message.reply_voice(voice=voice.file_id, duration=voice.duration, quote=False)
-    else:
-        update.message.reply_text("Nessun audio trovato")
+        logger.info("Permesso negato")
 
 def save_voice(session, voice_data, chat, command=None):
     voice = session.query(models.Voice).filter_by(file_id=voice_data.file_id, chat_id=chat.id).first()
