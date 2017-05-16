@@ -6,6 +6,7 @@ import struct
 import os
 import enum
 import logging
+import re
 
 # Enable logging
 logger = logging.getLogger(__name__)
@@ -13,7 +14,13 @@ logger = logging.getLogger(__name__)
 DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///data.db')
 
 logger.info("Creating engine with URI: '%s'" % DATABASE_URI)
-engine = create_engine(DATABASE_URI, connect_args={'check_same_thread': False})
+
+# Add 'check_same_thread' args if using sqlite (testing purpose)
+if re.match("^sqlite:", DATABASE_URI):
+    engine = create_engine(DATABASE_URI, connect_args={'check_same_thread': False})
+else:
+    engine = create_engine(DATABASE_URI)
+
 session_factory = sessionmaker(bind=engine)
 Session = scoped_session(session_factory)
 Base = declarative_base()
