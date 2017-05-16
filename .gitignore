@@ -90,3 +90,5 @@ ENV/
 
 # Custom File
 .db
+
+*.db

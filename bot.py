@@ -2,15 +2,21 @@ import os
 import re
 import logging
 import models
+import threading
+import time
+import sys
+import botUtils
+from botUtils import checkPermission, permissions
 from models import DataCommandHandler, DataMessageHandler
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram.ext.dispatcher import run_async
 from loli import getFromAlgorithms
 from telegram.error import TelegramError, Unauthorized
+from  sqlalchemy.sql.expression import func
 
 # Enable logging
-logging.basicConfig(format='%(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(format='%(name)s - %(thread)d - %(message)s',
+                    level=logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +41,6 @@ PORT = int(os.environ.get('PORT', '5000'))
 def main():
     dp = updater.dispatcher
 
-    # on different commands - answer in Telegram
     dp.add_handler(DataCommandHandler("start", start))
     dp.add_handler(DataCommandHandler("help", help))
     dp.add_handler(DataCommandHandler("setup", setup))
@@ -43,7 +48,11 @@ def main():
     dp.add_handler(DataCommandHandler("register",register))
     dp.add_handler(DataCommandHandler("regole",rules))
     dp.add_handler(DataCommandHandler("commands",commands))
-    dp.add_handler(DataMessageHandler(Filters.all,echo))
+    dp.add_handler(DataCommandHandler("restart",restart))
+    dp.add_handler(DataCommandHandler("ilaria",ilaria, pass_args=True))
+    dp.add_handler(DataCommandHandler("voice",voice, pass_args=True))
+    dp.add_handler(DataMessageHandler(Filters.voice, findIlaria))
+    dp.add_handler(DataMessageHandler(Filters.private,echo))
 
     # log all errors
     dp.add_error_handler(error)
@@ -65,6 +74,15 @@ def start(bot, update, session):
     models.registerUpdate(session, update)
     update.message.reply_text('C-Ciao Onii-san, sono la loli personale dei gruppo @weedlefan, se hai bisogno di supporto usa il comando /help o contatta il mio senpai @fuji97.',quote=False)
 
+def restart(bot, update, session):
+    logger.info("Ricevuto comando restart da: %s", update.message.from_user.username)
+    data = models.registerUpdate(session, update)
+    if checkPermission(data['user'], 2):
+        logger.info("Riavvio del bot")
+        bot.send_message(update.message.chat_id, "Riavvio del bot...")
+        time.sleep(0.2)
+        os.execl(sys.executable, sys.executable, *sys.argv)
+
 def chatId(bot, update, session):
     logger.info("Ricevuto comando chatId da: %s", update.message.from_user.username)
     data = models.registerUpdate(session, update)
@@ -76,8 +94,8 @@ def chatId(bot, update, session):
 
 def setup(bot, update, session):
     logger.info("Ricevuto comando setup da: %s", update.message.from_user.username)
-    data = models.registerUpdate(session, update)
-    if checkPermission(data['user'], 1):
+    #data = models.registerUpdate(session, update)
+    if update.effective_user.id == OWNER:
         models.createTables()
         update.message.reply_text("Tabelle del database aggiornate", quote="False")
 
@@ -124,6 +142,71 @@ def register(bot, update, session):
     logger.info("Ricevuto comando register da: %s", update.message.from_user.username)
     models.registerUpdate(session, update)
 
+def findIlaria(bot, update, session):
+    ilaria = models.getVariable(session, 'ilaria_id')
+    if ilaria is not None:
+        data = models.registerUpdate(session, update)
+        if data['user'].id == int(ilaria.value):
+            logger.info("Ricevuto audio di Ilaria, registro")
+            save_voice(session, update.message.voice, data['chat'])
+            update.message.reply_text("<i>Messaggio vocale registrato</>", parse_mode='html')
+        else:
+            logger.info("Ricevuto audio non di Ilaria (%i != %s)", data['user'].id, ilaria.value)
+
+def ilaria(bot, update, args, session):
+    logger.info("Ricevuto comando ilaria da: %s", update.message.from_user.username)
+    args = ' '.join(args)
+    data = models.registerUpdate(session, update)
+    if args:
+        voice = session.query(models.Voice).filter_by(command=args).order_by(func.random()).first()
+    else:
+        voice = session.query(models.Voice).order_by(func.random()).first()
+    if voice:
+        update.message.reply_voice(voice=voice.file_id, duration=voice.duration, quote=False)
+    else:
+        update.message.reply_text("Nessun audio trovato")
+
+def save_voice(session, voice_data, chat, command=None):
+    voice = session.query(models.Voice).filter_by(file_id=voice_data.file_id, chat_id=chat.id).first()
+    if voice:
+        #update.message.reply_text("Voce già trovata, sovrascrittura del comando", quote=False)
+        voice.command = command
+        created = True
+    else:
+        #update.message.reply_text("Creazione del comando %s" % args, quote=False)
+        voice = models.Voice(command=command, file_id=voice_data.file_id, duration=voice_data.duration, chat_id=chat.id)
+        session.add(voice)
+        created = False
+
+    try:
+        session.commit()
+    except Exception as e:
+        logger.error(str(e))
+        session.rollback()
+
+    return created
+
+def voice(bot, update, args, session):
+    logger.info("Ricevuto comando save_audio da: %s", update.message.from_user.username)
+    args = ' '.join(args)
+    data = models.registerUpdate(session, update)
+    if not checkPermission(data['user'], 3, data['chat']):
+        update.message.reply_text("Non hai i permessi per usare questo comando", quote=False)
+        return
+    if update.message.reply_to_message is None:
+        update.message.reply_text("Utilizzare il comando save_voice in risposta ad un messagio vocale per salvarlo", quote=False)
+        return
+    if update.message.reply_to_message.voice is None:
+        update.message.reply_text("Non è presente un messaggio vocale", quote=False)
+        return
+    if args is None or args is '':
+        update.message.reply_text("Non è presente il comando con cui salvare il messaggio vocale", quote=False)
+        return
+
+    if save_voice(session, update.message.reply_to_message.voice, data['chat'], args):
+        update.message.reply_text("Voce già trovata, sovrascrittura del comando", quote=False)
+    else:
+        update.message.reply_text("Creazione del comando %s" % args, quote=False)
 
 def echo(bot, update, session):
     data = models.registerUpdate(session, update)
@@ -154,6 +237,8 @@ def echo(bot, update, session):
             else:
                 logger.warning("Messaggio invalido ricevuto dall'owner")
 
+
+
 def loli(bot, update, args, session):
     logger.info("Ricevuto comando loli da: %s con parametri %s",
                 update.message.from_user.username, ' '.join(args))
@@ -167,44 +252,35 @@ def loli(bot, update, args, session):
             if 0 < count <= 10 and checkPermission(data['user'], 4, chat=data['chat']):
                 param = ' '.join(args[1:]) if not '' else None
                 for i in range(0, count):
-                    logging.debug("Immagine %i", i)
-                    sendImage(update, param)
+                    sendImage(update, models.Session(), param)
             else:
                 logger.info("Numero di immagini oltre il limite o mancanza di permessi")
         except ValueError:
             param = ' '.join(args)
             logger.info("Richiesta loli con parametro di ricerca: %s", param)
-            sendImage(update, param)
+            sendImage(update, session, param)
     else:
-        sendImage(update)
-
+        sendImage(update, session)
 
 @run_async
-def sendImage(update, param=None):
-    logging.debug("Invio immagine startato")
-    image = getFromAlgorithms(param)
-    if image["gif"]:
-        update.message.reply_video(video=image["link"],quote=False)
-    else:
-        update.message.reply_photo(photo=image["link"],quote=False)
+def sendImage(update, session, param=None):
+    try:
+        logging.debug("sendImage avviato")
+        image = getFromAlgorithms(session, param)
+        if image:
+            logger.debug("Immagine ricevuta, invio su Telegram")
+            if image["gif"]:
+                update.message.reply_video(video=image["link"],quote=False)
+            else:
+                update.message.reply_photo(photo=image["link"],quote=False)
+            logger.debug("Chiusura del thread di sendImage")
+        else:
+            update.message.reply_text("Nessuna immagine ricevuta")
+    except Exception as e:
+        logger.exception(e)
 
 def error(bot, update, error):
     logger.warn('Update "%s" ha causato un errore "%s"' % (update, error))
-
-def checkPermission(user, level, chat=None):
-    if user.id == OWNER:
-        return True
-    if chat:
-        role = next(member for member in chat.users if member.user == user).user_role
-        if role.value <= level:
-            return True
-        else:
-            return False
-    else:
-        if user.general_role.value <= level:
-            return True
-        else:
-            return False
 
 if __name__ == '__main__':
     updater = Updater(TOKEN)
