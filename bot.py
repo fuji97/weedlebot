@@ -279,7 +279,7 @@ def sendImage(update, session, param=None):
                 update.message.reply_photo(photo=image["link"],quote=False)
             logger.debug("Chiusura del thread di sendImage")
         else:
-            update.message.reply_text("Nessuna immagine ricevuta")
+            update.message.reply_text("Nessuna immagine trovata", quote=False)
     except Exception as e:
         logger.exception(e)
 
