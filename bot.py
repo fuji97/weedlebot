@@ -41,7 +41,6 @@ PORT = int(os.environ.get('PORT', '5000'))
 def main():
     dp = updater.dispatcher
 
-    # on different commands - answer in Telegram
     dp.add_handler(DataCommandHandler("start", start))
     dp.add_handler(DataCommandHandler("help", help))
     dp.add_handler(DataCommandHandler("setup", setup))
@@ -262,7 +261,6 @@ def loli(bot, update, args, session):
             sendImage(update, session, param)
     else:
         sendImage(update, session)
-
 
 @run_async
 def sendImage(update, session, param=None):

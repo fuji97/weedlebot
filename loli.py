@@ -68,6 +68,7 @@ def getFromImgur(**kwargs):
 			return {"link" : image.link, "gif" : False}
 
 def getFromZerochan(**kwargs):
+	logger.debug("Avviato getFromZerochan")
 	params = {"p" : randint(1,100), "s" : "random"}
 	r1 = requests.get("http://www.zerochan.net/Little+Girl", params=params)
 	imagesList = BeautifulSoup(r1.text, "lxml").find(id="thumbs2").find_all("li")
