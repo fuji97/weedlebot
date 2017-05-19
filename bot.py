@@ -149,7 +149,7 @@ def findIlaria(bot, update, session):
         if data['user'].id == int(ilaria.value):
             logger.info("Ricevuto audio di Ilaria, registro")
             save_voice(session, update.message.voice, data['chat'])
-            update.message.reply_text("<i>Messaggio vocale registrato</>", parse_mode='html')
+            #update.message.reply_text("<i>Messaggio vocale registrato</>", parse_mode='html')
         else:
             logger.info("Ricevuto audio non di Ilaria (%i != %s)", data['user'].id, ilaria.value)
 
@@ -166,7 +166,7 @@ def ilaria(bot, update, args, session):
         if voice:
             update.message.reply_voice(voice=voice.file_id, duration=voice.duration, quote=False)
         else:
-            update.message.reply_text("Nessun audio trovato")
+            update.message.reply_text("Nessun audio trovato con comando '%s'" % args)
     else:
         logger.info("Permesso negato")
 
@@ -208,7 +208,7 @@ def voice(bot, update, args, session):
         return
 
     if save_voice(session, update.message.reply_to_message.voice, data['chat'], args):
-        update.message.reply_text("Voce già trovata, sovrascrittura del comando", quote=False)
+        update.message.reply_text("Messaggio vocale salvato con comando '%s'" % args, quote=False)
     else:
         update.message.reply_text("Creazione del comando %s" % args, quote=False)
 
